@@ -8,16 +8,15 @@ export async function login(email: string, password: string): Promise<{ success:
     const page = await navigateAndWait(LOGIN_URL);
 
     // Check if already logged in
-    const accountLink = page.locator('[data-testid="header-my-account-logged"]');
-    if (await accountLink.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await isLoggedIn()) {
       await saveCookies();
       return { success: true, message: "Déjà connecté" };
     }
 
-    // Fill login form
-    await page.waitForSelector('input[type="email"], input[name="email"], #email', { timeout: 10000 });
+    // Fill login form — Carrefour uses standard email/password fields
+    await page.waitForSelector('input[type="email"], input[name="email"], #email, input[autocomplete="email"]', { timeout: 10000 });
 
-    const emailInput = page.locator('input[type="email"], input[name="email"], #email').first();
+    const emailInput = page.locator('input[type="email"], input[name="email"], #email, input[autocomplete="email"]').first();
     await emailInput.fill(email);
 
     const passwordInput = page.locator('input[type="password"], input[name="password"], #password').first();
@@ -27,7 +26,7 @@ export async function login(email: string, password: string): Promise<{ success:
     const submitBtn = page.locator('button[type="submit"]').first();
     await submitBtn.click();
 
-    // Wait for navigation
+    // Wait for navigation away from login page
     await page.waitForURL((url) => !url.href.includes("connexion"), { timeout: 15000 });
 
     await saveCookies();
@@ -40,7 +39,7 @@ export async function login(email: string, password: string): Promise<{ success:
 export async function isLoggedIn(): Promise<boolean> {
   try {
     const page = await navigateAndWait(ACCOUNT_URL);
-    // If we stay on the account page, we're logged in
+    // If we stay on the account page (not redirected to login), we're logged in
     return !page.url().includes("connexion");
   } catch {
     return false;

@@ -18,12 +18,13 @@ function ensureDataDir() {
 export async function getBrowser(): Promise<Browser> {
   if (!browser || !browser.isConnected()) {
     browser = await chromium.launch({
-      headless: true,
+      headless: false, // DataDome/Cloudflare blocks headless
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
+        "--disable-blink-features=AutomationControlled",
       ],
     });
   }
@@ -35,23 +36,25 @@ export async function getContext(): Promise<BrowserContext> {
     const b = await getBrowser();
     ensureDataDir();
 
+    const contextOptions = {
+      userAgent:
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      locale: "fr-FR",
+      timezoneId: "Europe/Paris",
+    };
+
     if (fs.existsSync(COOKIES_PATH)) {
       const cookies = JSON.parse(fs.readFileSync(COOKIES_PATH, "utf-8"));
-      context = await b.newContext({
-        userAgent:
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        locale: "fr-FR",
-        timezoneId: "Europe/Paris",
-      });
+      context = await b.newContext(contextOptions);
       await context.addCookies(cookies);
     } else {
-      context = await b.newContext({
-        userAgent:
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        locale: "fr-FR",
-        timezoneId: "Europe/Paris",
-      });
+      context = await b.newContext(contextOptions);
     }
+
+    // Patch navigator.webdriver to avoid bot detection
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
+    });
   }
   return context;
 }
@@ -82,10 +85,22 @@ export async function closeBrowser(): Promise<void> {
   browser = null;
 }
 
-export async function navigateAndWait(url: string): Promise<Page> {
+export async function navigateAndWait(url: string, options?: { timeout?: number }): Promise<Page> {
   const p = await getPage();
-  await p.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-  // Dismiss cookie banner if present
+  const timeout = options?.timeout ?? 45000;
+  await p.goto(url, { waitUntil: "domcontentloaded", timeout });
+
+  // Wait for any Cloudflare/anti-bot challenge to resolve
+  const title = await p.title();
+  if (title.includes("moment") || title.includes("challenge")) {
+    // Cloudflare challenge page — wait for it to resolve
+    await p.waitForFunction(
+      () => !document.title.includes("moment") && !document.title.includes("challenge"),
+      { timeout: 30000 }
+    ).catch(() => {});
+  }
+
+  // Dismiss cookie banner if present (OneTrust)
   try {
     const cookieBtn = p.locator("#onetrust-accept-btn-handler");
     if (await cookieBtn.isVisible({ timeout: 2000 })) {

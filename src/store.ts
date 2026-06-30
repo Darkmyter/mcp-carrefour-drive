@@ -1,28 +1,37 @@
 import { getPage, saveCookies, navigateAndWait } from "./browser.js";
 import type { Store } from "./types.js";
 
-const STORE_SEARCH_URL = "https://www.carrefour.fr/magasin/recherche";
+// Carrefour uses a store finder at /magasin or /magasin/liste
+const STORE_FINDER_URL = "https://www.carrefour.fr/magasin";
 
 export async function searchStores(postalCode: string): Promise<Store[]> {
-  const page = await navigateAndWait(STORE_SEARCH_URL);
-
-  // Type postal code in search
-  const searchInput = page.locator('input[placeholder*="ville"], input[placeholder*="code postal"], input[name="search"], input[type="search"]').first();
-  await searchInput.fill(postalCode);
-  await searchInput.press("Enter");
-
+  const page = await navigateAndWait(STORE_FINDER_URL);
   await page.waitForTimeout(3000);
 
-  // Extract store results
+  // Look for the store search input on the magasin page
+  // The page may have a geolocation/search input
+  const searchInput = page.locator(
+    'input[placeholder*="Rechercher"], input[placeholder*="code postal"], input[placeholder*="ville"], input[name*="search"], input[type="search"]'
+  ).first();
+
+  if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await searchInput.fill(postalCode);
+    await searchInput.press("Enter");
+    await page.waitForTimeout(3000);
+  }
+
+  // Extract store results — try various selectors
   const stores: Store[] = [];
-  const storeCards = page.locator('[data-testid="store-card"], .store-card, .store-result, article');
+  const storeCards = page.locator(
+    'article, [class*="store-card"], [class*="magasin-card"], [data-testid*="store"], [class*="store-result"]'
+  );
   const count = await storeCards.count();
 
   for (let i = 0; i < Math.min(count, 10); i++) {
     try {
       const card = storeCards.nth(i);
-      const name = await card.locator("h2, h3, .store-name, [data-testid=\"store-name\"]").first().textContent() || "";
-      const address = await card.locator(".address, .store-address, [data-testid=\"store-address\"]").first().textContent() || "";
+      const name = await card.locator("h2, h3, [class*='name'], [class*='title']").first().textContent() || "";
+      const address = await card.locator("[class*='address'], [class*='adresse'], p").first().textContent() || "";
 
       stores.push({
         id: `store-${i}`,
@@ -43,11 +52,13 @@ export async function searchStores(postalCode: string): Promise<Store[]> {
 export async function selectStore(storeIndex: number): Promise<{ success: boolean; message: string }> {
   try {
     const page = await getPage();
-    const storeCards = page.locator('[data-testid="store-card"], .store-card, .store-result, article');
+    const storeCards = page.locator(
+      'article, [class*="store-card"], [class*="magasin-card"], [data-testid*="store"]'
+    );
     const card = storeCards.nth(storeIndex);
 
     // Click on "Choisir ce magasin" or similar button
-    const selectBtn = card.locator('button, a').filter({ hasText: /choisir|sélectionner|drive/i }).first();
+    const selectBtn = card.locator('button, a').filter({ hasText: /choisir|sélectionner|drive|retirer/i }).first();
     await selectBtn.click();
     await page.waitForTimeout(3000);
     await saveCookies();

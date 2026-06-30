@@ -6,48 +6,90 @@ const SEARCH_URL = "https://www.carrefour.fr/s";
 export async function searchProducts(query: string, limit: number = 20): Promise<Product[]> {
   const page = await navigateAndWait(`${SEARCH_URL}?q=${encodeURIComponent(query)}`);
 
-  await page.waitForTimeout(3000);
+  // Wait for product cards to appear (up to 15s)
+  await page.waitForSelector("article.product-list-card-plp-grid-new", { timeout: 15000 }).catch(() => {});
+  // Give Vue hydration a moment to populate text content
+  await page.waitForTimeout(1000);
 
-  const products: Product[] = [];
-  const productCards = page.locator('[data-testid="product-card"], .product-card, [class*="product-card"], li[data-testid]');
-  const count = await productCards.count();
+  // Extract all product data in a single evaluate call (much faster than per-element locators)
+  const products = await page.evaluate((max: number) => {
+    const cards = document.querySelectorAll("article.product-list-card-plp-grid-new");
+    const results: any[] = [];
 
-  for (let i = 0; i < Math.min(count, limit); i++) {
-    try {
-      const card = productCards.nth(i);
+    for (let i = 0; i < Math.min(cards.length, max); i++) {
+      try {
+        const card = cards[i];
 
-      const name = await card.locator('[data-testid="product-card-title"], .product-card__title, h2, h3').first().textContent() || "";
-      const priceText = await card.locator('[data-testid="product-card-price"], .product-card__price, [class*="price"]').first().textContent() || "0";
-      const brand = await card.locator('[data-testid="product-card-brand"], .product-card__brand, [class*="brand"]').first().textContent().catch(() => "");
-      const pricePerUnit = await card.locator('[data-testid="product-card-unit-price"], .product-card__unit-price, [class*="unit-price"]').first().textContent().catch(() => "");
-      const image = await card.locator("img").first().getAttribute("src") || "";
+        // Product link — use the specific title container link, not any /p/ link
+        const linkEl = card.querySelector(
+          "a.product-card-click-wrapper[href*='/p/'], a.product-list-card-plp-grid-new__title-container[href*='/p/']"
+        ) || card.querySelector("a[href*='/p/']");
+        const href = linkEl?.getAttribute("href") || "";
+        const id = href.split("/").pop() || `product-${i}`;
 
-      // Check for promotion
-      const promo = await card.locator('[class*="promo"], [class*="discount"], [data-testid*="promo"]').first().textContent().catch(() => undefined);
+        // Product name: try the title container first, then the link text, then img alt
+        const titleEl = card.querySelector(
+          "a.product-card-click-wrapper, a.product-list-card-plp-grid-new__title-container"
+        );
+        let fullText = (titleEl?.textContent || "").trim();
+        // Also try img alt text as fallback
+        if (!fullText) {
+          const imgEl = card.querySelector("img") as HTMLImageElement;
+          const alt = imgEl?.alt || "";
+          if (alt.startsWith("image: ")) fullText = alt.substring(7);
+          else fullText = alt;
+        }
+        const parts = fullText.split(/\s{2,}/);
+        const brand = parts.length > 1 ? parts[0].trim() : "";
+        const name = parts.length > 1 ? parts.slice(1).join(" ").trim() : fullText;
 
-      // Parse price
-      const price = parseFloat(priceText.replace(/[^\d,]/g, "").replace(",", ".")) || 0;
+        // Price
+        const priceEl = card.querySelector(".product-price");
+        const priceText = priceEl?.textContent || "0";
 
-      // Get product URL for ID
-      const link = await card.locator("a").first().getAttribute("href") || "";
-      const id = link.split("/").pop() || `product-${i}`;
+        // Image
+        const imgEl = card.querySelector("img.product-card-image-new__content, img.product-card-image-new__placeholder") as HTMLImageElement;
+        const image = imgEl?.src || "";
 
-      products.push({
-        id,
-        name: name.trim(),
-        brand: (brand || "").trim(),
-        price,
-        pricePerUnit: (pricePerUnit || "").trim(),
-        image,
-        available: true,
-        promotion: promo?.trim(),
-      });
-    } catch {
-      continue;
+        // Promo
+        const promoEl = card.querySelector(".sticker-promo__text");
+        const promo = promoEl?.textContent?.trim() || undefined;
+
+        results.push({ id, name, brand, priceText, image, promo });
+      } catch {
+        continue;
+      }
+    }
+    return results;
+  }, limit);
+
+  // Parse prices on the Node side
+  return products.map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    brand: p.brand,
+    price: parsePrice(p.priceText),
+    pricePerUnit: "",
+    image: p.image,
+    available: true,
+    promotion: p.promo,
+  }));
+}
+
+function parsePrice(text: string): number {
+  const cleaned = text.replace(/[^\d.,]/g, "");
+  if (!cleaned) return 0;
+  if (cleaned.includes(",") && cleaned.includes(".")) {
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      return parseFloat(cleaned.replace(/\./g, "").replace(",", ".")) || 0;
+    } else {
+      return parseFloat(cleaned.replace(/,/g, "")) || 0;
     }
   }
-
-  return products;
+  if (cleaned.includes(",")) return parseFloat(cleaned.replace(/,/g, ".")) || 0;
+  return parseFloat(cleaned) || 0;
 }
 
 export async function getProductDetails(productUrl: string): Promise<ProductDetails | null> {
@@ -55,46 +97,59 @@ export async function getProductDetails(productUrl: string): Promise<ProductDeta
     const url = productUrl.startsWith("http") ? productUrl : `https://www.carrefour.fr${productUrl}`;
     const page = await navigateAndWait(url);
 
-    await page.waitForTimeout(2000);
+    // Wait for product title or any content
+    await page.waitForSelector("h1.product-title__title", { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1000);
 
-    const name = await page.locator("h1, [data-testid=\"product-title\"]").first().textContent() || "";
-    const priceText = await page.locator('[data-testid="product-price"], [class*="product-price"], [class*="price"]').first().textContent() || "0";
-    const price = parseFloat(priceText.replace(/[^\d,]/g, "").replace(",", ".")) || 0;
-    const brand = await page.locator('[data-testid="product-brand"], [class*="brand"]').first().textContent().catch(() => "");
-    const description = await page.locator('[data-testid="product-description"], [class*="description"], .product-description').first().textContent().catch(() => "");
-    const ingredients = await page.locator('[data-testid="product-ingredients"], [class*="ingredients"]').first().textContent().catch(() => undefined);
-    const image = await page.locator('[data-testid="product-image"] img, .product-image img').first().getAttribute("src") || "";
-    const pricePerUnit = await page.locator('[data-testid="product-unit-price"], [class*="unit-price"]').first().textContent().catch(() => "");
+    // Extract all details in one evaluate call
+    const data = await page.evaluate(() => {
+      const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || "";
+      const getAttr = (sel: string, attr: string) => document.querySelector(sel)?.getAttribute(attr) || "";
 
-    // Nutrition facts
-    const nutritionFacts: Record<string, string> = {};
-    const nutritionRows = page.locator('[class*="nutrition"] tr, [data-testid*="nutrition"] tr');
-    const nutritionCount = await nutritionRows.count();
-    for (let i = 0; i < nutritionCount; i++) {
-      const row = nutritionRows.nth(i);
-      const cells = row.locator("td, th");
-      if (await cells.count() >= 2) {
-        const key = await cells.nth(0).textContent() || "";
-        const value = await cells.nth(1).textContent() || "";
-        if (key.trim()) nutritionFacts[key.trim()] = value.trim();
-      }
-    }
+      // Price
+      const priceEl = document.querySelector('[data-testid="product-price__amount--main"]');
+      const priceText = priceEl?.textContent || "0";
 
-    // Allergens
-    const allergensText = await page.locator('[data-testid="product-allergens"], [class*="allergen"]').first().textContent().catch(() => "");
-    const allergens = allergensText ? allergensText.split(/[,;]/).map((a) => a.trim()).filter(Boolean) : undefined;
+      // Nutrition
+      const nutritionFacts: Record<string, string> = {};
+      const rows = document.querySelectorAll("#nutritional-details tr, .nutritional-details tr");
+      rows.forEach(row => {
+        const cells = row.querySelectorAll("td, th");
+        if (cells.length >= 2) {
+          const key = cells[0].textContent?.trim() || "";
+          const value = cells[1].textContent?.trim() || "";
+          if (key) nutritionFacts[key] = value;
+        }
+      });
+
+      return {
+        name: getText("h1.product-title__title"),
+        priceText,
+        brand: getText(".product-title__brand, .brand-name"),
+        description: getText(".product-description, .main-details__description"),
+        image: getAttr(".product-image img, .product-zoom img", "src"),
+        pricePerUnit: getText(".product-price__per-unit, [class*='per-unit']"),
+        ingredients: getText("[class*='ingredient'] p, .highlighted-section-card__content"),
+        allergensText: getText("[class*='allergen']"),
+        nutritionFacts,
+      };
+    });
+
+    const allergens = data.allergensText
+      ? data.allergensText.split(/[,;]/).map((a: string) => a.trim()).filter(Boolean)
+      : undefined;
 
     return {
       id: productUrl.split("/").pop() || "",
-      name: name.trim(),
-      brand: (brand || "").trim(),
-      price,
-      pricePerUnit: (pricePerUnit || "").trim(),
-      image,
+      name: data.name,
+      brand: data.brand,
+      price: parsePrice(data.priceText),
+      pricePerUnit: data.pricePerUnit,
+      image: data.image,
       available: true,
-      description: (description || "").trim(),
-      ingredients: ingredients?.trim(),
-      nutritionFacts: Object.keys(nutritionFacts).length > 0 ? nutritionFacts : undefined,
+      description: data.description,
+      ingredients: data.ingredients || undefined,
+      nutritionFacts: Object.keys(data.nutritionFacts).length > 0 ? data.nutritionFacts : undefined,
       allergens,
     };
   } catch {

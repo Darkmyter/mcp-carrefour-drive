@@ -1,260 +1,218 @@
 # mcp-carrefour-drive
 
-MCP server for Carrefour Drive — search products, manage cart, check slots, and order groceries via AI assistants.
+An [MCP](https://modelcontextprotocol.io) server for [Carrefour Drive](https://www.carrefour.fr) — search products, manage your cart, and check out via any AI assistant that supports the Model Context Protocol.
 
-Forked from [maximeallanic/mcp-carrefour-drive](https://github.com/maximeallanic/mcp-carrefour-drive) with fixed selectors for the real Carrefour.fr DOM and automated tests.
+> **Fork notice:** Forked from [maximeallanic/mcp-carrefour-drive](https://github.com/maximeallanic/mcp-carrefour-drive) with working selectors for the real Carrefour.fr website, anti-bot detection handling, and a full test suite.
 
-## Quick Start
+## Features
+
+- 🔍 **Product search** — query Carrefour's catalog with name, brand, price, Nutri-Score, and promo info
+- 📦 **Product details** — nutrition facts, ingredients, allergens, price per unit
+- 🛒 **Cart management** — add, remove, update quantities
+- 🔐 **Session persistence** — cookies survive across MCP restarts
+- ✅ **Tested** — unit tests (no browser) and E2E tests against the live site
+
+## Installation
 
 ```bash
-cd ~/mcp-carrefour-drive-fork
+git clone https://github.com/Darkmyter/mcp-carrefour-drive.git
+cd mcp-carrefour-drive
 npm install
 npm run build
-
-# Run unit tests (no browser)
-npm run test
-
-# Run E2E tests (requires visible browser + DISPLAY=:0)
-DISPLAY=:0 CARREFOUR_DATA_DIR=~/.carrefour-mcp npm run test:e2e
 ```
 
-## Architecture
+Requires Node.js ≥ 18 and Playwright browsers:
 
-```
-src/
-├── index.ts       # MCP server entry — registers all tools with zod schemas
-├── browser.ts     # Playwright launcher — non-headless, stealth, cookie persistence
-├── auth.ts        # login / logout / isLoggedIn via carrefour.fr SSO
-├── search.ts      # searchProducts / getProductDetails
-├── cart.ts        # addToCart / removeFromCart / getCart / updateCartItemQuantity
-├── store.ts       # searchStores / selectStore / selectStoreByPostalCode
-├── slots.ts       # getAvailableSlots / selectSlot (untested)
-├── checkout.ts    # getCheckoutSummary / confirmAndPay (untested)
-└── types.ts       # Product, Cart, Store, DeliverySlot interfaces
+```bash
+npx playwright install chromium
 ```
 
-All page interactions use a **single `page.evaluate()` call** per operation (not per-element locators) for speed. The original code used per-element Playwright locators which caused 30s+ timeouts; the evaluate approach completes in 2–3s.
+## Configuration
 
-## Environment Variables
+### MCP Client Setup
+
+Add to your MCP client config (e.g. `~/.hermes/config.yaml`):
+
+```yaml
+mcp:
+  servers:
+    carrefour-drive:
+      command: node
+      args:
+        - /path/to/mcp-carrefour-drive/dist/index.js
+      env:
+        CARREFOUR_EMAIL: your-email@example.com
+        CARREFOUR_PASSWORD: your-password
+        DISPLAY: ":0"
+        CARREFOUR_DATA_DIR: ~/.carrefour-mcp
+      enabled: true
+```
+
+### Environment Variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `CARREFOUR_EMAIL` | Yes | — | Carrefour account email |
-| `CARREFOUR_PASSWORD` | Yes | — | Carrefour account password |
-| `DISPLAY` | Yes | — | X11 display (e.g. `:0`). DataDome blocks headless browsers. |
-| `CARREFOUR_DATA_DIR` | No | `~/.carrefour-mcp` | Cookie storage directory |
+| `CARREFOUR_EMAIL` | Yes | — | Your Carrefour account email |
+| `CARREFOUR_PASSWORD` | Yes | — | Your Carrefour account password |
+| `DISPLAY` | Yes | — | X11 display (e.g. `:0`). Required because DataDome blocks headless browsers. |
+| `CARREFOUR_DATA_DIR` | No | `~/.carrefour-mcp` | Directory for cookie storage |
 
-## MCP Tools
+> **Why `DISPLAY`?** Carrefour.fr uses DataDome anti-bot protection that detects headless browsers. This server runs a visible Chromium window (it will appear on your display). Cookies persist in `CARREFOUR_DATA_DIR` so sessions survive restarts.
+
+## Available Tools
 
 | Tool | Status | Description |
 |---|---|---|
-| `search_products` | ✅ Working | Search by query, returns name/brand/price/image/promo |
-| `get_product_details` | ✅ Working | Full product page: price, nutrition, ingredients, allergens |
-| `add_to_cart` | ✅ Working | Navigate to product page and click "Acheter" |
-| `get_cart` | ✅ Working | Extract cart items and total from /cart/driveclcv |
-| `remove_from_cart` | ✅ Working | Click "Supprimer" button for matching item |
-| `update_cart_quantity` | ⚠️ Untested | Uses +/- buttons, may need testing |
-| `check_login` | ✅ Working | Returns true/false |
-| `login` | ⚠️ Partial | Form fill works, but SSO redirect may need handling |
-| `select_store` | ⚠️ Partial | /magasin page has limited store search |
-| `get_available_slots` | ❌ Untested | May need selector fixes |
-| `select_slot` | ❌ Untested | May need selector fixes |
-| `get_checkout_summary` | ❌ Untested | May need selector fixes |
-| `confirm_and_pay` | ❌ Untested | Deliberately — don't auto-pay |
+| `search_products` | ✅ | Search by query, returns name, brand, price, image, promo |
+| `get_product_details` | ✅ | Full product page: price, nutrition, ingredients, allergens |
+| `add_to_cart` | ✅ | Navigate to product page and add to cart |
+| `get_cart` | ✅ | View cart items and total |
+| `remove_from_cart` | ✅ | Remove a product from the cart |
+| `update_cart_quantity` | ⚠️ | Update item quantity (needs more testing) |
+| `check_login` | ✅ | Check if session is valid |
+| `login` | ⚠️ | Log in via Carrefour SSO (works, but SSO redirects can be flaky) |
+| `select_store` | ⚠️ | Select a Carrefour Drive store (limited store finder) |
+| `get_available_slots` | ❌ | List delivery time slots (untested) |
+| `select_slot` | ❌ | Select a delivery slot (untested) |
+| `get_checkout_summary` | ❌ | View order summary before payment (untested) |
+| `confirm_and_pay` | 🚫 | Submit payment — **intentionally untested** for safety |
+
+> ✅ = tested and working · ⚠️ = partially working · ❌ = untested · 🚫 = deliberately skipped
+
+## Testing
+
+```bash
+# Unit tests — pure logic, no browser needed
+npm test
+
+# E2E tests — runs against live carrefour.fr (needs DISPLAY=:0)
+DISPLAY=:0 CARREFOUR_DATA_DIR=~/.carrefour-mcp npm run test:e2e
+```
+
+## Development
+
+```bash
+# Watch mode (rebuilds on change)
+npm run dev
+
+# Watch tests
+npm run test:watch
+```
+
+### Architecture
+
+```
+src/
+├── index.ts       # MCP server — tool registration & zod schemas
+├── browser.ts     # Playwright lifecycle, stealth config, cookie persistence
+├── auth.ts        # Login / session check via Carrefour SSO
+├── search.ts      # Product search & detail page extraction
+├── cart.ts        # Cart operations (add, remove, get, update qty)
+├── store.ts       # Store finder (partial)
+├── slots.ts       # Delivery slots (untested)
+├── checkout.ts    # Checkout flow (untested)
+└── types.ts       # TypeScript interfaces
+
+tests/
+├── unit.test.ts   # Pure logic tests (no browser)
+└── e2e.test.ts    # Live tests against carrefour.fr
+```
+
+All page interactions use a single `page.evaluate()` call per operation instead of per-element Playwright locators. This is deliberate — the original code's per-locator approach caused 30s+ timeouts; `evaluate()` completes in 2–3s.
 
 ## Carrefour.fr DOM Reference
 
-This is the **source of truth** for selectors. If the website changes, re-run the DOM inspector (see below) and update `src/*.ts`.
+This is the **source of truth** for all CSS selectors. If the website changes and tests break, update these in `src/*.ts` and this section.
 
-### Search Results Page (`/s?q=...`)
-
-```
-URL pattern: https://www.carrefour.fr/s?q=<query>
-
-Product card container:
-  article.product-list-card-plp-grid-new
-    data-testid="<ean>"           ← product EAN as test ID
-
-Inside each card:
-  Product link + name:
-    a.product-card-click-wrapper[href*="/p/"]
-    a.product-list-card-plp-grid-new__title-container
-    Text format: "BRAND  Product Name"  (double-space separated)
-
-  Price:
-    .product-price → text like "1 ,15 €"
-    Has modifier class .product-price--promo when on sale
-
-  Unit price (per kg/L):
-    Inside .product-price area, e.g. "1.15 € / L"
-
-  Image:
-    img.product-card-image-new__content
-    img.product-card-image-new__placeholder (before load)
-
-  Promo badge:
-    .sticker-promo__text → e.g. "Le 2ème à -50%"
-
-  Nutri-Score:
-    img[alt*="Nutri-Score"] → e.g. "Nutri-Score: A"
-
-  Quantity tag:
-    button.c-tag → e.g. "1L", "6x1l"
-```
-
-### Product Detail Page (`/p/<slug>-<ean>`)
+### Search Results (`/s?q=...`)
 
 ```
-URL pattern: https://www.carrefour.fr/p/<product-slug>-<ean>
+Card container:  article.product-list-card-plp-grid-new
+                   data-testid="<ean>"
 
-Title:
-  h1.product-title__title
-
-Price:
-  [data-testid="product-price__amount--main"]
-  Parent: .product-price__amount
-
-Add to cart button:
-  button[aria-label*="Ajouter le produit"][aria-label*="au panier"]
-  Text: "Acheter"
-  Parent: .add-to-cart → .quantity-button
-
-After adding, button becomes quantity selector with +/- buttons:
-  button[aria-label*="augmenter"]  (increment)
-  button[aria-label*="diminuer"]   (decrement)
-  .quantity-counter__value         (current qty)
-
-Nutrition facts:
-  #nutritional-details / .nutritional-details
-  Table rows: #nutritional-details tr
-
-Delivery mode selector:
-  button[data-testid*="pill-group"] → Drive / Livraison / Livraison Express
+Product link:    a.product-card-click-wrapper[href*="/p/"]
+Product name:    Text format "BRAND  Product Name" (double-space separated)
+Price:           .product-price  →  "1 ,15 €"
+Unit price:      Inside .product-price, e.g. "1.15 € / L"
+Image:           img.product-card-image-new__content
+Promo:           .sticker-promo__text  →  "Le 2ème à -50%"
+Nutri-Score:     img[alt*="Nutri-Score"]
 ```
 
-### Cart Page (`/cart/driveclcv`)
+### Product Detail (`/p/<slug>-<ean>`)
 
 ```
-URL: https://www.carrefour.fr/cart/driveclcv
-(redirects to login if not authenticated)
-
-Cart item container:
-  div.product-card-basket
-    data-testid="<ean>"
-
-Inside each item:
-  Product image + link:
-    a.product-card-basket__image[href*="/p/"]
-    data-testid="product-card-image"
-
-  Product name:
-    .product-card-title__text (h3)
-
-  Remove button (two variants):
-    button[aria-label*="Supprimer ... du panier"]  (text link style)
-    button[aria-label*="Retirer ..."]              (icon button)
-
-  Quantity:
-    .quantity-counter__value
-
-Cart total:
-  .checkout-unified-recap__subtotal → "Total 2,55 €"
-
-Cart URL pattern: /cart/driveclcv
-  "driveclcv" = Drive CLCV delivery type
+Title:           h1.product-title__title
+Price:           [data-testid="product-price__amount--main"]
+Add to cart:     button[aria-label*="Ajouter le produit"][aria-label*="au panier"]
+                 (becomes +/- quantity selector after first click)
+Nutrition:       #nutritional-details tr
 ```
 
-### Login Page (`/mon-compte/connexion`)
+### Cart (`/cart/driveclcv`)
 
 ```
-Email input:  input[type="email"], input[name="email"], #email
-Password:     input[type="password"]
-Submit:       button[type="submit"]
-After login:  URL changes away from /connexion
-SSO:          May redirect to moncompte.carrefour.fr (OpenAM)
-```
-
-### Store Finder (`/magasin`)
-
-```
-The store page at /magasin/recherche does NOT have a dedicated store search input.
-Store selection is handled through:
-  - The site-wide search bar (input.c-base-input__input)
-  - Geolocation popup on first visit
-  - Cookie-based store preference
-
-Links found on homepage:
-  /magasin          → "Trouver votre magasin le plus proche"
-  /magasin/liste    → "Tous les magasins"
+Item container:  div.product-card-basket[data-testid="<ean>"]
+Product name:    .product-card-title__text (h3)
+Remove:          button[aria-label*="Supprimer"]
+Total:           .checkout-unified-recap__subtotal  →  "Total 2,55 €"
 ```
 
 ## When Selectors Break
 
-Carrefour.fr is a Vue.js SPA. Class names are semantic (not hashed), so they're relatively stable, but the site does get redesigned periodically.
+Carrefour.fr is a Vue.js SPA with semantic class names (not hashed), so selectors are relatively stable. But the site does get redesigned periodically.
 
-### Re-inspection Procedure
+**Quick diagnosis:**
 
-1. Run the DOM inspector script (or create a new one):
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| 0 products found | Card class changed | Inspect `article` elements on `/s?q=riz` |
+| Name is empty | Title link class changed | Check `.product-card-click-wrapper` |
+| Price is 0 | Price element changed | Check `.product-price` |
+| Add to cart fails | Button aria-label changed | Check `button[aria-label*="Ajouter"]` |
+| Cart throws | Login redirect | Cookies expired — re-login |
+| Cloudflare challenge | Anti-bot update | Check `browser.ts` stealth args |
+| All pages timeout | DataDome blocking | Ensure `headless: false` and `DISPLAY` set |
 
-```javascript
-// inspect.mjs — run with: DISPLAY=:0 node inspect.mjs
+**Re-inspect procedure:**
+
+```bash
+# Create a quick inspector
+cat > /tmp/inspect.mjs << 'EOF'
 import { chromium } from "playwright";
 const browser = await chromium.launch({ headless: false });
 const page = await browser.newPage();
 await page.goto("https://www.carrefour.fr/s?q=riz");
 await page.waitForTimeout(5000);
-
-// Check what selectors still work
 const info = await page.evaluate(() => {
   const cards = document.querySelectorAll("article");
   return {
-    cardCount: cards.length,
-    firstCardClasses: cards[0]?.className,
-    firstCardHTML: cards[0]?.outerHTML.substring(0, 2000),
+    count: cards.length,
+    classes: cards[0]?.className,
+    html: cards[0]?.outerHTML.substring(0, 2000),
   };
 });
 console.log(JSON.stringify(info, null, 2));
 await browser.close();
+EOF
+
+DISPLAY=:0 node /tmp/inspect.mjs
 ```
 
-2. Compare with the selectors in `src/search.ts`, `src/cart.ts`, etc.
-3. Update the selectors in the source code
-4. Run `npm run build && npm run test:e2e` to verify
-5. Update this document's DOM Reference section
+Compare the output with the selectors in `src/search.ts`, update, rebuild, retest.
 
-### Common Breakage Patterns
+## Security
 
-| Symptom | Likely Cause | Fix |
-|---|---|---|
-| Search returns 0 products | Card class changed | Re-inspect `article` elements |
-| Product name empty | Title link class changed | Check `.product-card-click-wrapper` |
-| Price is 0 | Price element class changed | Check `.product-price` |
-| Add to cart fails | Button aria-label changed | Check `button[aria-label*="Ajouter"]` |
-| Cart page throws | Login redirect | Refresh cookies, check auth |
-| Cloudflare challenge | Anti-bot update | Check browser.ts stealth args |
-| Timeout on all pages | DataDome blocking | Ensure `headless: false` + DISPLAY set |
+- **Credentials** are passed via environment variables, never committed
+- **Cookies** stored in `CARREFOUR_DATA_DIR` — treat as sensitive
+- **`confirm_and_pay`** is deliberately untested — auto-paying with an AI is dangerous
+- The browser runs **non-headless** to avoid bot detection — it appears as a window on your display
 
-## Security Notes
+## Credits
 
-- **Never commit credentials** — `CARREFOUR_EMAIL` and `CARREFOUR_PASSWORD` are in `~/.hermes/config.yaml`, not in this repo
-- **Cookies** are stored in `~/.carrefour-mcp/cookies.json` — treat as sensitive
-- **`confirm_and_pay`** is intentionally untested — auto-paying is dangerous
-- The browser runs non-headless to avoid bot detection — it will appear on the X display
+- Original MCP server by [Maxime Allanic](https://github.com/maximeallanic/mcp-carrefour-drive)
+- Selector fixes, tests, and documentation by [Bader](https://github.com/Darkmyter)
 
-## Publishing
+## License
 
-No GitHub remote yet. To create one:
-
-```bash
-cd ~/mcp-carrefour-drive-fork
-gh auth login
-gh repo create mcp-carrefour-drive --public --source=. --push
-```
-
-To propose changes upstream:
-
-```bash
-git remote add upstream https://github.com/maximeallanic/mcp-carrefour-drive.git
-git fetch upstream
-# Create a PR via GitHub UI
-```
+[MIT](LICENSE)

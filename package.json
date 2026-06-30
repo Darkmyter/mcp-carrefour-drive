@@ -1,7 +1,7 @@
 {
   "name": "mcp-carrefour-drive",
   "version": "0.2.0",
-  "description": "MCP server for Carrefour Drive — Search products, manage cart, check slots, and order groceries via AI assistants",
+  "description": "MCP server for Carrefour Drive — Search products, manage cart, and order groceries via AI assistants using the Model Context Protocol",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -12,8 +12,16 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "test:e2e": "vitest run tests/e2e.test.ts",
+    "test:e2e": "DISPLAY=:0 vitest run tests/e2e.test.ts",
     "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Darkmyter/mcp-carrefour-drive.git"
+  },
+  "homepage": "https://github.com/Darkmyter/mcp-carrefour-drive#readme",
+  "bugs": {
+    "url": "https://github.com/Darkmyter/mcp-carrefour-drive/issues"
   },
   "keywords": [
     "mcp",
@@ -21,10 +29,15 @@
     "drive",
     "grocery",
     "playwright",
-    "model-context-protocol"
+    "model-context-protocol",
+    "ai-assistant",
+    "shopping"
   ],
-  "author": "Bader (forked from Maxime Allanic)",
+  "author": "Maxime Allanic (original), Bader (fork)",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
     "playwright": "^1.50.0",

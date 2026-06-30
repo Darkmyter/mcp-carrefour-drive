@@ -1,0 +1,36 @@
+{
+  "name": "mcp-carrefour-drive",
+  "version": "0.1.0",
+  "description": "MCP server for Carrefour Drive - Search products, manage cart, check slots, and order groceries via AI assistants",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-carrefour-drive": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": [
+    "mcp",
+    "carrefour",
+    "drive",
+    "grocery",
+    "playwright",
+    "headless",
+    "model-context-protocol"
+  ],
+  "author": "Maxime Allanic",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "playwright": "^1.50.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.8.0"
+  }
+}
